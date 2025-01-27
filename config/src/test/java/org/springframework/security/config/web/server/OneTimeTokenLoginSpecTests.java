@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2024 the original author or authors.
+ * Copyright 2002-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +16,9 @@
 
 package org.springframework.security.config.web.server;
 
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.Collections;
 import java.util.Map;
 
@@ -29,6 +32,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.security.authentication.ott.GenerateOneTimeTokenRequest;
 import org.springframework.security.authentication.ott.OneTimeToken;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity;
@@ -40,6 +44,8 @@ import org.springframework.security.core.userdetails.User;
 import org.springframework.security.test.web.reactive.server.SecurityMockServerConfigurers;
 import org.springframework.security.web.server.SecurityWebFilterChain;
 import org.springframework.security.web.server.authentication.RedirectServerAuthenticationSuccessHandler;
+import org.springframework.security.web.server.authentication.ott.DefaultServerGenerateOneTimeTokenRequestResolver;
+import org.springframework.security.web.server.authentication.ott.ServerGenerateOneTimeTokenRequestResolver;
 import org.springframework.security.web.server.authentication.ott.ServerOneTimeTokenGenerationSuccessHandler;
 import org.springframework.security.web.server.authentication.ott.ServerRedirectOneTimeTokenGenerationSuccessHandler;
 import org.springframework.test.web.reactive.server.WebTestClient;
@@ -280,6 +286,36 @@ public class OneTimeTokenLoginSpecTests {
 					""");
 	}
 
+	@Test
+	void oneTimeTokenWhenCustomTokenExpirationTimeSetThenAuthenticate() throws Exception {
+		this.spring.register(OneTimeTokenConfigWithCustomTokenExpirationTime.class).autowire();
+
+		// @formatter:off
+		this.client.mutateWith(SecurityMockServerConfigurers.csrf())
+				.post()
+				.uri((uriBuilder) -> uriBuilder
+						.path("/ott/generate")
+						.build()
+				)
+				.contentType(MediaType.APPLICATION_FORM_URLENCODED)
+				.body(BodyInserters.fromFormData("username", "user"))
+				.exchange()
+				.expectStatus()
+				.is3xxRedirection()
+				.expectHeader().valueEquals("Location", "/login/ott");
+		// @formatter:on
+
+		OneTimeToken token = TestServerOneTimeTokenGenerationSuccessHandler.lastToken;
+
+		assertThat(getCurrentMinutes(token.getExpiresAt())).isEqualTo(10);
+	}
+
+	private int getCurrentMinutes(Instant expiresAt) {
+		int expiresMinutes = expiresAt.atZone(ZoneOffset.UTC).getMinute();
+		int currentMinutes = Instant.now().atZone(ZoneOffset.UTC).getMinute();
+		return expiresMinutes - currentMinutes;
+	}
+
 	@Configuration(proxyBeanMethods = false)
 	@EnableWebFlux
 	@EnableWebFluxSecurity
@@ -381,6 +417,36 @@ public class OneTimeTokenLoginSpecTests {
 		ReactiveUserDetailsService userDetailsService() {
 			return new MapReactiveUserDetailsService(
 					Map.of("user", new User("user", "password", Collections.emptyList())));
+		}
+
+	}
+
+	@Configuration(proxyBeanMethods = false)
+	@EnableWebFlux
+	@EnableWebFluxSecurity
+	@Import(UserDetailsServiceConfig.class)
+	static class OneTimeTokenConfigWithCustomTokenExpirationTime {
+
+		@Bean
+		SecurityWebFilterChain securityWebFilterChain(ServerHttpSecurity http) {
+			// @formatter:off
+			http
+					.authorizeExchange((authorize) -> authorize
+							.anyExchange()
+							.authenticated()
+					)
+					.oneTimeTokenLogin((ott) -> ott
+							.tokenGenerationSuccessHandler(new TestServerOneTimeTokenGenerationSuccessHandler())
+					);
+			// @formatter:on
+			return http.build();
+		}
+
+		@Bean
+		ServerGenerateOneTimeTokenRequestResolver resolver() {
+			DefaultServerGenerateOneTimeTokenRequestResolver resolver = new DefaultServerGenerateOneTimeTokenRequestResolver();
+			return (exchange) -> resolver.resolve(exchange)
+				.map((request) -> new GenerateOneTimeTokenRequest(request.getUsername(), Duration.ofSeconds(600)));
 		}
 
 	}
