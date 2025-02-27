@@ -2053,14 +2053,14 @@ public class OAuth2ResourceServerConfigurerTests {
 		}
 
 		@Bean
-		AuthenticationConverter authenticationConverterOne() {
+		BearerTokenAuthenticationConverter authenticationConverterOne() {
 			BearerTokenAuthenticationConverter converter = new BearerTokenAuthenticationConverter();
 			converter.setAllowUriQueryParameter(true);
 			return converter;
 		}
 
 		@Bean
-		AuthenticationConverter authenticationConverterTwo() {
+		BearerTokenAuthenticationConverter authenticationConverterTwo() {
 			BearerTokenAuthenticationConverter converter = new BearerTokenAuthenticationConverter();
 			converter.setAllowUriQueryParameter(true);
 			return converter;

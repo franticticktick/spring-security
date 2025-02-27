@@ -24,14 +24,11 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
-import org.springframework.security.authentication.AuthenticationDetailsSource;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.oauth2.server.resource.BearerTokenError;
 import org.springframework.security.oauth2.server.resource.BearerTokenErrors;
 import org.springframework.security.web.authentication.AuthenticationConverter;
-import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
-import org.springframework.util.Assert;
 import org.springframework.util.StringUtils;
 
 /**
@@ -42,8 +39,6 @@ import org.springframework.util.StringUtils;
  * @since 6.3
  */
 public final class BearerTokenAuthenticationConverter implements AuthenticationConverter {
-
-	private AuthenticationDetailsSource<HttpServletRequest, ?> authenticationDetailsSource = new WebAuthenticationDetailsSource();
 
 	private static final Pattern authorizationPattern = Pattern.compile("^Bearer (?<token>[a-zA-Z0-9-._~+/]+=*)$",
 			Pattern.CASE_INSENSITIVE);
@@ -60,10 +55,7 @@ public final class BearerTokenAuthenticationConverter implements AuthenticationC
 	public Authentication convert(HttpServletRequest request) {
 		String token = resolveToken(request);
 		if (StringUtils.hasText(token)) {
-			BearerTokenAuthenticationToken authenticationToken = new BearerTokenAuthenticationToken(token);
-			authenticationToken.setDetails(this.authenticationDetailsSource.buildDetails(request));
-
-			return authenticationToken;
+			return new BearerTokenAuthenticationToken(token);
 		}
 		return null;
 	}
@@ -164,17 +156,6 @@ public final class BearerTokenAuthenticationConverter implements AuthenticationC
 	 */
 	public void setAllowFormEncodedBodyParameter(boolean allowFormEncodedBodyParameter) {
 		this.allowFormEncodedBodyParameter = allowFormEncodedBodyParameter;
-	}
-
-	/**
-	 * Set the {@link AuthenticationDetailsSource} to use. Defaults to
-	 * {@link WebAuthenticationDetailsSource}.
-	 * @param authenticationDetailsSource the {@code AuthenticationDetailsSource} to use
-	 */
-	public void setAuthenticationDetailsSource(
-			AuthenticationDetailsSource<HttpServletRequest, ?> authenticationDetailsSource) {
-		Assert.notNull(authenticationDetailsSource, "authenticationDetailsSource cannot be null");
-		this.authenticationDetailsSource = authenticationDetailsSource;
 	}
 
 }

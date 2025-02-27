@@ -23,6 +23,8 @@ import java.util.Map;
 import java.util.function.Supplier;
 
 import jakarta.servlet.http.HttpServletRequest;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 
 import org.springframework.context.ApplicationContext;
 import org.springframework.core.convert.converter.Converter;
@@ -37,11 +39,13 @@ import org.springframework.security.config.annotation.web.configurers.AbstractHt
 import org.springframework.security.config.annotation.web.configurers.CsrfConfigurer;
 import org.springframework.security.config.annotation.web.configurers.ExceptionHandlingConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.server.resource.authentication.BearerTokenAuthenticationConverter;
+import org.springframework.security.oauth2.server.resource.authentication.BearerTokenAuthenticationToken;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationProvider;
 import org.springframework.security.oauth2.server.resource.authentication.OpaqueTokenAuthenticationProvider;
@@ -65,6 +69,7 @@ import org.springframework.security.web.util.matcher.OrRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestHeaderRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.util.Assert;
+import org.springframework.util.StringUtils;
 import org.springframework.web.accept.ContentNegotiationStrategy;
 import org.springframework.web.accept.HeaderContentNegotiationStrategy;
 
@@ -158,8 +163,6 @@ public final class OAuth2ResourceServerConfigurer<H extends HttpSecurityBuilder<
 
 	private AuthenticationManagerResolver<HttpServletRequest> authenticationManagerResolver;
 
-	private BearerTokenResolver bearerTokenResolver;
-
 	private AuthenticationConverter authenticationConverter;
 
 	private JwtConfigurer jwtConfigurer;
@@ -198,9 +201,10 @@ public final class OAuth2ResourceServerConfigurer<H extends HttpSecurityBuilder<
 		return this;
 	}
 
+	@Deprecated
 	public OAuth2ResourceServerConfigurer<H> bearerTokenResolver(BearerTokenResolver bearerTokenResolver) {
 		Assert.notNull(bearerTokenResolver, "bearerTokenResolver cannot be null");
-		this.bearerTokenResolver = bearerTokenResolver;
+		this.authenticationConverter = new BearerTokenResolverAuthenticationConverterAdapter(bearerTokenResolver);
 		return this;
 	}
 
@@ -286,20 +290,11 @@ public final class OAuth2ResourceServerConfigurer<H extends HttpSecurityBuilder<
 			AuthenticationManager authenticationManager = getAuthenticationManager(http);
 			resolver = (request) -> authenticationManager;
 		}
+
 		BearerTokenAuthenticationFilter filter = new BearerTokenAuthenticationFilter(resolver);
-
-		BearerTokenResolver bearerTokenResolver = getBearerTokenResolver();
-		if (bearerTokenResolver != null) {
-			this.requestMatcher.setBearerTokenResolver(bearerTokenResolver);
-			filter.setBearerTokenResolver(bearerTokenResolver);
-		}
-		else {
-			AuthenticationConverter converter = getAuthenticationConverter();
-			this.requestMatcher.setAuthenticationConverter(converter);
-			filter.setAuthenticationConverter(converter);
-		}
-
-		filter.setAuthenticationConverter(getAuthenticationConverter());
+		AuthenticationConverter converter = getAuthenticationConverter();
+		this.requestMatcher.setAuthenticationConverter(converter);
+		filter.setAuthenticationConverter(converter);
 		filter.setAuthenticationEntryPoint(this.authenticationEntryPoint);
 		filter.setSecurityContextHolderStrategy(getSecurityContextHolderStrategy());
 		filter = postProcess(filter);
@@ -382,25 +377,29 @@ public final class OAuth2ResourceServerConfigurer<H extends HttpSecurityBuilder<
 		return http.getSharedObject(AuthenticationManager.class);
 	}
 
-	BearerTokenResolver getBearerTokenResolver() {
-		if (this.bearerTokenResolver == null) {
-			if (this.context.getBeanNamesForType(BearerTokenResolver.class).length > 0) {
-				this.bearerTokenResolver = this.context.getBean(BearerTokenResolver.class);
-			}
-		}
-		return this.bearerTokenResolver;
-	}
-
 	AuthenticationConverter getAuthenticationConverter() {
-		if (this.authenticationConverter == null) {
-			if (this.context.getBeanNamesForType(AuthenticationConverter.class).length > 0) {
-				this.authenticationConverter = this.context.getBean(AuthenticationConverter.class);
-			}
-			else {
-				this.authenticationConverter = new BearerTokenAuthenticationConverter();
-			}
+		if (this.authenticationConverter != null) {
+			return this.authenticationConverter;
+		}
+		if (this.context.getBeanNamesForType(BearerTokenAuthenticationConverter.class).length > 0) {
+			this.authenticationConverter = this.context.getBean(BearerTokenAuthenticationConverter.class);
+		}
+		else if (this.context.getBeanNamesForType(BearerTokenResolver.class).length > 0) {
+			BearerTokenResolver bearerTokenResolver = this.context.getBean(BearerTokenResolver.class);
+			this.authenticationConverter = new BearerTokenResolverAuthenticationConverterAdapter(bearerTokenResolver);
+		}
+		else {
+			this.authenticationConverter = new BearerTokenAuthenticationConverter();
 		}
 		return this.authenticationConverter;
+	}
+
+	BearerTokenResolver getBearerTokenResolver() {
+		AuthenticationConverter authenticationConverter = getAuthenticationConverter();
+		if (authenticationConverter instanceof BearerTokenResolverAuthenticationConverterAdapter bearer) {
+			return bearer.bearerTokenResolver;
+		}
+		return null;
 	}
 
 	public class JwtConfigurer {
@@ -588,16 +587,11 @@ public final class OAuth2ResourceServerConfigurer<H extends HttpSecurityBuilder<
 
 	private static final class BearerTokenRequestMatcher implements RequestMatcher {
 
-		private BearerTokenResolver bearerTokenResolver;
-
 		private AuthenticationConverter authenticationConverter;
 
 		@Override
 		public boolean matches(HttpServletRequest request) {
 			try {
-				if (this.bearerTokenResolver != null) {
-					return this.bearerTokenResolver.resolve(request) != null;
-				}
 				return this.authenticationConverter.convert(request) != null;
 			}
 			catch (OAuth2AuthenticationException ex) {
@@ -605,14 +599,31 @@ public final class OAuth2ResourceServerConfigurer<H extends HttpSecurityBuilder<
 			}
 		}
 
-		void setBearerTokenResolver(BearerTokenResolver tokenResolver) {
-			Assert.notNull(tokenResolver, "resolver cannot be null");
-			this.bearerTokenResolver = tokenResolver;
-		}
-
 		void setAuthenticationConverter(AuthenticationConverter authenticationConverter) {
 			Assert.notNull(authenticationConverter, "authenticationConverter cannot be null");
 			this.authenticationConverter = authenticationConverter;
+		}
+
+	}
+
+	private static final class BearerTokenResolverAuthenticationConverterAdapter implements AuthenticationConverter {
+
+		private final Log logger = LogFactory.getLog(BearerTokenResolverAuthenticationConverterAdapter.class);
+
+		private final BearerTokenResolver bearerTokenResolver;
+
+		BearerTokenResolverAuthenticationConverterAdapter(BearerTokenResolver bearerTokenResolver) {
+			this.bearerTokenResolver = bearerTokenResolver;
+		}
+
+		@Override
+		public Authentication convert(HttpServletRequest request) {
+			String token = this.bearerTokenResolver.resolve(request);
+			if (!StringUtils.hasText(token)) {
+				this.logger.trace("Did not process request since did not find bearer token");
+				return null;
+			}
+			return new BearerTokenAuthenticationToken(this.bearerTokenResolver.resolve(request));
 		}
 
 	}

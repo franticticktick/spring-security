@@ -24,6 +24,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
 import org.springframework.core.log.LogMessage;
+import org.springframework.security.authentication.AbstractAuthenticationToken;
 import org.springframework.security.authentication.AuthenticationDetailsSource;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.AuthenticationManagerResolver;
@@ -79,8 +80,6 @@ public class BearerTokenAuthenticationFilter extends OncePerRequestFilter {
 	private AuthenticationFailureHandler authenticationFailureHandler = new AuthenticationEntryPointFailureHandler(
 			(request, response, exception) -> this.authenticationEntryPoint.commence(request, response, exception));
 
-	private BearerTokenResolver bearerTokenResolver;
-
 	private AuthenticationDetailsSource<HttpServletRequest, ?> authenticationDetailsSource = new WebAuthenticationDetailsSource();
 
 	private SecurityContextRepository securityContextRepository = new RequestAttributeSecurityContextRepository();
@@ -119,19 +118,9 @@ public class BearerTokenAuthenticationFilter extends OncePerRequestFilter {
 	@Override
 	protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
 			throws ServletException, IOException {
-		Authentication authentication;
+		Authentication authenticationRequest;
 		try {
-			if (this.bearerTokenResolver != null) {
-				String token = this.bearerTokenResolver.resolve(request);
-				if (!StringUtils.hasText(token)) {
-					this.logger.trace("Did not process request since did not find bearer token");
-					return;
-				}
-				authentication = bearerTokenAuthenticationToken(token, request);
-			}
-			else {
-				authentication = this.authenticationConverter.convert(request);
-			}
+			authenticationRequest = this.authenticationConverter.convert(request);
 		}
 		catch (OAuth2AuthenticationException invalid) {
 			this.logger.trace("Sending to authentication entry point since failed to resolve bearer token", invalid);
@@ -139,15 +128,19 @@ public class BearerTokenAuthenticationFilter extends OncePerRequestFilter {
 			return;
 		}
 
-		if (authentication == null) {
-			this.logger.trace("Failed to convert authentication request");
+		if (authenticationRequest == null) {
+			this.logger.trace("Did not process request since did not find bearer token");
 			filterChain.doFilter(request, response);
 			return;
 		}
 
+		if (authenticationRequest instanceof AbstractAuthenticationToken details) {
+			details.setDetails(this.authenticationDetailsSource.buildDetails(request));
+		}
+
 		try {
 			AuthenticationManager authenticationManager = this.authenticationManagerResolver.resolve(request);
-			Authentication authenticationResult = authenticationManager.authenticate(authentication);
+			Authentication authenticationResult = authenticationManager.authenticate(authenticationRequest);
 			SecurityContext context = this.securityContextHolderStrategy.createEmptyContext();
 			context.setAuthentication(authenticationResult);
 			this.securityContextHolderStrategy.setContext(context);
@@ -162,12 +155,6 @@ public class BearerTokenAuthenticationFilter extends OncePerRequestFilter {
 			this.logger.trace("Failed to process authentication request", failed);
 			this.authenticationFailureHandler.onAuthenticationFailure(request, response, failed);
 		}
-	}
-
-	private Authentication bearerTokenAuthenticationToken(String token, HttpServletRequest request) {
-		BearerTokenAuthenticationToken authenticationToken = new BearerTokenAuthenticationToken(token);
-		authenticationToken.setDetails(this.authenticationDetailsSource.buildDetails(request));
-		return authenticationToken;
 	}
 
 	/**
@@ -200,7 +187,14 @@ public class BearerTokenAuthenticationFilter extends OncePerRequestFilter {
 	 */
 	public void setBearerTokenResolver(BearerTokenResolver bearerTokenResolver) {
 		Assert.notNull(bearerTokenResolver, "bearerTokenResolver cannot be null");
-		this.bearerTokenResolver = bearerTokenResolver;
+		this.authenticationConverter = (request) -> {
+			String token = bearerTokenResolver.resolve(request);
+			if (!StringUtils.hasText(token)) {
+				this.logger.trace("Did not process request since did not find bearer token");
+				return null;
+			}
+			return new BearerTokenAuthenticationToken(bearerTokenResolver.resolve(request));
+		};
 	}
 
 	/**
@@ -233,8 +227,6 @@ public class BearerTokenAuthenticationFilter extends OncePerRequestFilter {
 	public void setAuthenticationDetailsSource(
 			AuthenticationDetailsSource<HttpServletRequest, ?> authenticationDetailsSource) {
 		Assert.notNull(authenticationDetailsSource, "authenticationDetailsSource cannot be null");
-		Assert.notNull(this.bearerTokenResolver,
-				"bearerTokenResolver cannot be null, required authenticationDetailsSource must be set to authenticationConverter");
 		this.authenticationDetailsSource = authenticationDetailsSource;
 	}
 
