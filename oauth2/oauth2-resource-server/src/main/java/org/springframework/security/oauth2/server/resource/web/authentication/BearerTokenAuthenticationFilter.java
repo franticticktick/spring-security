@@ -192,7 +192,7 @@ public class BearerTokenAuthenticationFilter extends OncePerRequestFilter {
 				this.logger.trace("Did not process request since did not find bearer token");
 				return null;
 			}
-			return new BearerTokenAuthenticationToken(bearerTokenResolver.resolve(request));
+			return new BearerTokenAuthenticationToken(token);
 		};
 	}
 
