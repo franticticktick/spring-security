@@ -117,7 +117,6 @@ import org.springframework.security.oauth2.jwt.JwtTimestampValidator;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.TestJwts;
 import org.springframework.security.oauth2.server.resource.authentication.BearerTokenAuthentication;
-import org.springframework.security.oauth2.server.resource.authentication.BearerTokenAuthenticationConverter;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.security.oauth2.server.resource.authentication.JwtIssuerAuthenticationManagerResolver;
@@ -128,6 +127,7 @@ import org.springframework.security.oauth2.server.resource.web.BearerTokenAuthen
 import org.springframework.security.oauth2.server.resource.web.BearerTokenResolver;
 import org.springframework.security.oauth2.server.resource.web.DefaultBearerTokenResolver;
 import org.springframework.security.oauth2.server.resource.web.access.BearerTokenAccessDeniedHandler;
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationConverter;
 import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.web.AuthenticationEntryPoint;
@@ -2053,14 +2053,14 @@ public class OAuth2ResourceServerConfigurerTests {
 		}
 
 		@Bean
-		AuthenticationConverter authenticationConverterOne() {
+		BearerTokenAuthenticationConverter authenticationConverterOne() {
 			BearerTokenAuthenticationConverter converter = new BearerTokenAuthenticationConverter();
 			converter.setAllowUriQueryParameter(true);
 			return converter;
 		}
 
 		@Bean
-		AuthenticationConverter authenticationConverterTwo() {
+		BearerTokenAuthenticationConverter authenticationConverterTwo() {
 			BearerTokenAuthenticationConverter converter = new BearerTokenAuthenticationConverter();
 			converter.setAllowUriQueryParameter(true);
 			return converter;

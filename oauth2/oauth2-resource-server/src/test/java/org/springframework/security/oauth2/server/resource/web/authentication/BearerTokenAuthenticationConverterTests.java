@@ -14,24 +14,19 @@
  * limitations under the License.
  */
 
-package org.springframework.security.oauth2.server.resource.authentication;
+package org.springframework.security.oauth2.server.resource.web.authentication;
 
-import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpServletRequest;
-import org.springframework.security.authentication.AuthenticationDetailsSource;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.verify;
 
 /**
  * Tests for {@link BearerTokenAuthenticationConverter}
@@ -117,21 +112,6 @@ public class BearerTokenAuthenticationConverterTests {
 
 		assertThatExceptionOfType(OAuth2AuthenticationException.class).isThrownBy(() -> this.converter.convert(request))
 			.withMessageContaining(("Bearer token is malformed"));
-	}
-
-	@Test
-	@SuppressWarnings("unchecked")
-	public void convertWhenCustomAuthenticationDetailsSourceSetThenTokenIsConverted() {
-		MockHttpServletRequest request = new MockHttpServletRequest();
-		request.addHeader(HttpHeaders.AUTHORIZATION, "Bearer " + BEARER_TOKEN);
-		AuthenticationDetailsSource<HttpServletRequest, ?> authenticationDetailsSource = Mockito
-			.mock(AuthenticationDetailsSource.class);
-		this.converter.setAuthenticationDetailsSource(authenticationDetailsSource);
-
-		Authentication authentication = this.converter.convert(request);
-
-		verify(authenticationDetailsSource).buildDetails(any());
-		assertThat(authentication).isNotNull();
 	}
 
 	@Test
